@@ -1,7 +1,7 @@
 flask==2.3.3
 flask-cors==4.0.0
 requests==2.31.0
-numpy==1.24.3
+numpy==1.26.4  # 🔥 UPDATE KE VERSI INI!
 gunicorn==21.2.0
-setuptools==69.5.1  # PIN KE VERSI INI! JANGAN 82.0.0
+setuptools==69.5.1
 wheel==0.43.0
