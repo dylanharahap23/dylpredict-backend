@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from liquidation_hunter import analyze_symbol, POPULAR_SYMBOLS
 import json
+import os  # 🔥 TAMBAHIN INI!
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend
@@ -78,4 +79,6 @@ def get_symbols():
     })
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    # 🔥 PRODUCTION SETUP FOR RENDER
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
