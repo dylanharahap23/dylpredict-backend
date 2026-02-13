@@ -12,8 +12,9 @@ WORKDIR /app
 # Copy requirements first
 COPY requirements.txt .
 
-# Upgrade pip and install dependencies
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+# URUTAN PENTING: Install setuptools versi lama DULU, baru upgrade pip
+RUN pip install --no-cache-dir setuptools==69.5.1 wheel==0.43.0 && \
+    pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest
