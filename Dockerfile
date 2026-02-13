@@ -1,23 +1,18 @@
 FROM python:3.12-slim
 
-# Install system dependencies
+# Install minimal build tools
 RUN apt-get update && apt-get install -y \
     gcc \
-    g++ \
-    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy requirements first
 COPY requirements.txt .
 
-# URUTAN PENTING: Install setuptools versi lama DULU, baru upgrade pip
-RUN pip install --no-cache-dir setuptools==69.5.1 wheel==0.43.0 && \
-    pip install --no-cache-dir --upgrade pip && \
+# Install dependencies - numpy 1.26.4 udah pre-compiled untuk 3.12!
+RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest
 COPY . .
 
 EXPOSE 8000
