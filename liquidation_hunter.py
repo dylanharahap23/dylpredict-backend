@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 🔥 BINANCE LIQUIDATION HUNTER V14 - CONFLICT RESOLUTION ENGINE
-Optimized for Render & PythonAnywhere
+Optimized for Production (Koyeb/Render/PythonAnywhere)
 Perspektif Market Maker: Follow the liquidity, not the price
+FIX BTRUSDT: Strong Bid + Premium Negatif + Breakdown = SHORT (bukan LONG)
 """
 
 import requests
@@ -17,9 +18,10 @@ import time
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ================= CONFIG =================
-DEFAULT_TIMEOUT = 10  # Naikin timeout biar gak gampang gagal
+DEFAULT_TIMEOUT = 10
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
+# ================= DATA FETCHER =================
 class BinanceFetcher:
     """Centralized data fetching with error handling - Production Ready"""
     
@@ -28,7 +30,6 @@ class BinanceFetcher:
         self.BASE_URL = "https://fapi.binance.com"  # Futures API
         self.TIMEOUT = DEFAULT_TIMEOUT
         
-        # Buat session dengan konfigurasi optimal
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": USER_AGENT,
@@ -36,42 +37,22 @@ class BinanceFetcher:
             "Accept-Encoding": "gzip, deflate",
             "Connection": "keep-alive"
         })
-        self.session.verify = False  # Skip SSL verification untuk stability
+        self.session.verify = False
         
     def fetch(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Any]:
-        """
-        Fetch data dari Binance dengan error handling komprehensif
-        """
+        """Fetch data dari Binance dengan error handling komprehensif"""
         try:
             url = f"{self.BASE_URL}{endpoint}"
-            
-            # Logging untuk debug (bisa diaktifkan kalau perlu)
-            # print(f"🌐 Fetching: {url}")
-            
-            response = self.session.get(
-                url, 
-                params=params, 
-                timeout=self.TIMEOUT,
-                allow_redirects=True
-            )
-            
-            if response.status_code == 200:
-                return response.json()
-            else:
-                print(f"❌ HTTP {response.status_code}: {url}")
-                return None
-                
+            response = self.session.get(url, params=params, timeout=self.TIMEOUT, allow_redirects=True)
+            return response.json() if response.status_code == 200 else None
         except requests.exceptions.Timeout:
             print(f"⏰ Timeout: {endpoint}")
             return None
         except requests.exceptions.ConnectionError:
             print(f"🔌 Connection Error: {endpoint}")
             return None
-        except requests.exceptions.RequestException as e:
-            print(f"❌ Request Exception: {e}")
-            return None
         except Exception as e:
-            print(f"💥 Unexpected Error: {e}")
+            print(f"❌ Fetch Error {endpoint}: {e}")
             return None
     
     def get_price(self) -> Optional[float]:
@@ -93,16 +74,15 @@ class BinanceFetcher:
     def get_orderbook_ratio(self) -> Optional[float]:
         """
         Get bid/ask ratio dari orderbook
-        TRUE interpretation: High ratio = BID dominant = BUY pressure
+        TRUE interpretation: High ratio = BID dominant = BUY pressure = BULLISH
         """
         try:
             data = self.fetch("/fapi/v1/depth", {"symbol": self.symbol, "limit": 10})
             if not data or "bids" not in data or "asks" not in data:
                 return None
             
-            # Hitung volume 5 level teratas
-            bid_vol = sum(float(quantity) for _, quantity in data["bids"][:5])
-            ask_vol = sum(float(quantity) for _, quantity in data["asks"][:5])
+            bid_vol = sum(float(q) for _, q in data["bids"][:5])
+            ask_vol = sum(float(q) for _, q in data["asks"][:5])
             
             if ask_vol == 0:
                 return 99.0
@@ -110,8 +90,7 @@ class BinanceFetcher:
                 return 0.01
             
             ratio = round(bid_vol / ask_vol, 2)
-            return min(ratio, 99.0)  # Cap di 99 untuk menghindari nilai ekstrem
-            
+            return min(ratio, 99.0)
         except Exception as e:
             print(f"❌ Orderbook error: {e}")
             return None
@@ -123,10 +102,8 @@ class BinanceFetcher:
             if not data:
                 return None
             
-            # Hitung buyer vs seller (isBuyerMaker = True berarti seller)
             buys = sum(1 for trade in data if not trade.get("isBuyerMaker", True))
             sells = len(data) - buys
-            
             buy_ratio = buys / sells if sells > 0 else 99.0
             
             return {
@@ -142,6 +119,8 @@ class BinanceFetcher:
         """
         Get funding rate dan premium index
         Premium = WHERE THE CROWD IS POSITIONED
+        Premium positif = LONG dominant = SHORT SQUEEZE risk
+        Premium negatif = SHORT dominant = LONG SQUEEZE risk
         """
         try:
             data = self.fetch("/fapi/v1/premiumIndex", {"symbol": self.symbol})
@@ -151,7 +130,6 @@ class BinanceFetcher:
             mark_price = float(data.get("markPrice", 0))
             index_price = float(data.get("indexPrice", 0))
             
-            # Hindari division by zero
             if index_price == 0:
                 premium_basis = 0
             else:
@@ -194,12 +172,13 @@ class BinanceFetcher:
         return self.fetch("/fapi/v1/depth", {"symbol": self.symbol, "limit": 20})
 
 
+# ================= ANALYZERS =================
 class TechnicalAnalyzer:
-    """Technical analysis dengan threshold-based filtering"""
+    """Technical analysis with threshold-based filtering"""
     
     @staticmethod
     def get_ema_trend(closes: List[float], threshold: float = 0.0005) -> Tuple[float, str]:
-        """EMA dengan THRESHOLD untuk noise elimination"""
+        """EMA dengan THRESHOLD - noise elimination"""
         try:
             if len(closes) < 10:
                 return 0, "FLAT"
@@ -222,25 +201,18 @@ class TechnicalAnalyzer:
     
     @staticmethod
     def get_price_changes(closes: List[float]) -> Dict:
-        """Calculate price changes untuk berbagai timeframe"""
-        changes = {
-            "1m": 0.0,
-            "5m": 0.0,
-            "15m": 0.0
-        }
+        """Calculate price changes for different timeframes"""
+        changes = {"1m": 0.0, "5m": 0.0, "15m": 0.0}
         
         try:
             if len(closes) >= 2 and closes[-2] != 0:
                 changes["1m"] = ((closes[-1] - closes[-2]) / closes[-2]) * 100
-            
             if len(closes) >= 5 and closes[-5] != 0:
                 changes["5m"] = ((closes[-1] - closes[-5]) / closes[-5]) * 100
-            
             if len(closes) >= 15 and closes[-15] != 0:
                 changes["15m"] = ((closes[-1] - closes[-15]) / closes[-15]) * 100
         except:
             pass
-            
         return changes
     
     @staticmethod
@@ -248,14 +220,7 @@ class TechnicalAnalyzer:
         """Deteksi zona likuidasi"""
         try:
             if not highs or not lows or current_price == 0:
-                return {
-                    "near_long_liq": False,
-                    "near_short_liq": False,
-                    "recent_high": 0,
-                    "recent_low": 0,
-                    "long_liq_distance": 0,
-                    "short_liq_distance": 0
-                }
+                return {"near_long_liq": False, "near_short_liq": False, "recent_high": 0, "recent_low": 0, "long_liq_distance": 0, "short_liq_distance": 0}
             
             recent_high = max(highs[-10:]) if len(highs) >= 10 else max(highs)
             recent_low = min(lows[-10:]) if len(lows) >= 10 else min(lows)
@@ -272,22 +237,16 @@ class TechnicalAnalyzer:
                 "short_liq_distance": short_liq_distance
             }
         except:
-            return {
-                "near_long_liq": False,
-                "near_short_liq": False,
-                "recent_high": 0,
-                "recent_low": 0,
-                "long_liq_distance": 0,
-                "short_liq_distance": 0
-            }
+            return {"near_long_liq": False, "near_short_liq": False, "recent_high": 0, "recent_low": 0, "long_liq_distance": 0, "short_liq_distance": 0}
 
 
+# ================= MARKET STRUCTURE ANALYZER =================
 class MarketStructureAnalyzer:
     """Market structure and pattern recognition"""
     
     @staticmethod
     def get_orderbook_sentiment(ratio: float) -> Dict:
-        """Interpretasi orderbook yang BENAR"""
+        """FIX #1: Interpretasi orderbook yang BENAR"""
         if ratio > 2.0:
             return {"bias": "STRONG_BID", "sentiment": "BULLISH", "score": 40}
         elif ratio > 1.2:
@@ -301,7 +260,7 @@ class MarketStructureAnalyzer:
     
     @staticmethod
     def get_premium_sentiment(premium: float) -> Dict:
-        """Interpretasi premium yang BENAR"""
+        """FIX #2: Interpretasi premium yang BENAR"""
         if premium > 0.1:
             return {"bias": "LONG_DOMINANT", "risk": "SHORT_SQUEEZE", "score": 30}
         elif premium > 0.03:
@@ -370,54 +329,78 @@ class MarketStructureAnalyzer:
                                 price_change_5m: float) -> Dict:
         """Deteksi reversal dan conflict patterns"""
         
+        # 🔴 OVERBOUGHT REVERSAL - Top formation
+        overbought_reversal = (
+            change_24h > 30 and
+            raw_breakdown and
+            near_long_liq and
+            premium < -0.2
+        )
+        
+        # 🔵 OVERSOLD REVERSAL - Bottom formation
+        oversold_reversal = (
+            change_24h < -20 and
+            not raw_breakdown and
+            near_short_liq and
+            premium > 0.2
+        )
+        
+        # 🎯 BID LIQUIDITY TRAP (FIX BTRUSDT)
+        bid_liquidity_trap = (
+            ob_bias == "STRONG_BID" and
+            premium_bias in ["SHORT_DOMINANT", "SHORT_BIAS"] and
+            price_change_5m < 0 and
+            (raw_breakdown or near_long_liq)
+        )
+        
+        # 🎯 ASK LIQUIDITY TRAP
+        ask_liquidity_trap = (
+            ob_bias == "STRONG_ASK" and
+            premium_bias in ["LONG_DOMINANT", "LONG_BIAS"] and
+            price_change_5m > 0 and
+            (not raw_breakdown or near_short_liq)
+        )
+        
+        # ⚔️ CONFLICT DETECTION
+        bid_vs_premium_conflict = (
+            ob_bias in ["STRONG_BID", "BID"] and
+            premium_bias in ["SHORT_DOMINANT", "SHORT_BIAS"]
+        )
+        
+        ask_vs_premium_conflict = (
+            ob_bias in ["STRONG_ASK", "ASK"] and
+            premium_bias in ["LONG_DOMINANT", "LONG_BIAS"]
+        )
+        
+        # 💀 EXTREME OVERBOUGHT CASCADE
+        extreme_overbought_cascade = (
+            change_24h > 50 and
+            raw_breakdown and
+            near_long_liq and
+            premium < -0.5
+        )
+        
+        # 💀 EXTREME OVERSOLD CASCADE
+        extreme_oversold_cascade = (
+            change_24h < -40 and
+            not raw_breakdown and
+            near_short_liq and
+            premium > 0.5
+        )
+        
         return {
-            "overbought_reversal": (
-                change_24h > 30 and
-                raw_breakdown and
-                near_long_liq and
-                premium < -0.2
-            ),
-            "oversold_reversal": (
-                change_24h < -20 and
-                not raw_breakdown and
-                near_short_liq and
-                premium > 0.2
-            ),
-            "bid_liquidity_trap": (
-                ob_bias == "STRONG_BID" and
-                premium_bias in ["SHORT_DOMINANT", "SHORT_BIAS"] and
-                price_change_5m < 0 and
-                (raw_breakdown or near_long_liq)
-            ),
-            "ask_liquidity_trap": (
-                ob_bias == "STRONG_ASK" and
-                premium_bias in ["LONG_DOMINANT", "LONG_BIAS"] and
-                price_change_5m > 0 and
-                (not raw_breakdown or near_short_liq)
-            ),
-            "bid_vs_premium_conflict": (
-                ob_bias in ["STRONG_BID", "BID"] and
-                premium_bias in ["SHORT_DOMINANT", "SHORT_BIAS"]
-            ),
-            "ask_vs_premium_conflict": (
-                ob_bias in ["STRONG_ASK", "ASK"] and
-                premium_bias in ["LONG_DOMINANT", "LONG_BIAS"]
-            ),
-            "extreme_overbought_cascade": (
-                change_24h > 50 and
-                raw_breakdown and
-                near_long_liq and
-                premium < -0.5
-            ),
-            "extreme_oversold_cascade": (
-                change_24h < -40 and
-                not raw_breakdown and
-                near_short_liq and
-                premium > 0.5
-            )
+            "overbought_reversal": overbought_reversal,
+            "oversold_reversal": oversold_reversal,
+            "bid_liquidity_trap": bid_liquidity_trap,
+            "ask_liquidity_trap": ask_liquidity_trap,
+            "bid_vs_premium_conflict": bid_vs_premium_conflict,
+            "ask_vs_premium_conflict": ask_vs_premium_conflict,
+            "extreme_overbought_cascade": extreme_overbought_cascade,
+            "extreme_oversold_cascade": extreme_oversold_cascade
         }
 
 
+# ================= DECISION ENGINE =================
 class DecisionEngine:
     """Probability-based decision engine dengan priority hierarchy"""
     
@@ -436,32 +419,39 @@ class DecisionEngine:
         # 🚨 PRIORITY 0: EXTREME REVERSAL & CONFLICT
         # ============================================
         
+        # 💀 EXTREME OVERBOUGHT CASCADE (50%+)
         if data['patterns'].get('extreme_overbought_cascade', False):
             self._set_decision("SHORT", "EXTREME_OVERBOUGHT_CASCADE_REVERSAL", "VERY_HIGH",
                               "💀 EXTREME OVERBOUGHT - MAJOR TOP", valid_breakdown=True)
         
+        # 💀 EXTREME OVERSOLD CASCADE (-40%-)
         elif data['patterns'].get('extreme_oversold_cascade', False):
             self._set_decision("LONG", "EXTREME_OVERSOLD_CASCADE_REVERSAL", "VERY_HIGH",
                               "💀 EXTREME OVERSOLD - MAJOR BOTTOM", fake_breakdown=True)
         
+        # 🔴 OVERBOUGHT REVERSAL (30%+)
         elif data['patterns'].get('overbought_reversal', False):
             self._set_decision("SHORT", "OVERBOUGHT_TOP_REVERSAL", "VERY_HIGH",
                               "🚨 TOP FORMATION - REVERSAL", valid_breakdown=True)
         
+        # 🔵 OVERSOLD REVERSAL (-20%-)
         elif data['patterns'].get('oversold_reversal', False):
             self._set_decision("LONG", "OVERSOLD_BOTTOM_REVERSAL", "VERY_HIGH",
                               "🚨 BOTTOM FORMATION - REVERSAL", fake_breakdown=True)
         
+        # 🎯 BID LIQUIDITY TRAP (FIX BTRUSDT)
         elif data['patterns'].get('bid_liquidity_trap', False):
             self._set_decision("SHORT", "BID_LIQUIDITY_TRAP_DISTRIBUTION", "HIGH",
                               "🎯 BID DOMINANT TAPI PREMIUM NEGATIF - DISTRIBUTION", 
                               valid_breakdown=True)
         
+        # 🎯 ASK LIQUIDITY TRAP
         elif data['patterns'].get('ask_liquidity_trap', False):
             self._set_decision("LONG", "ASK_LIQUIDITY_TRAP_ABSORPTION", "HIGH",
                               "🎯 ASK DOMINANT TAPI PREMIUM POSITIF - ABSORPTION",
                               fake_breakdown=True)
         
+        # ⚔️ CONFLICT RESOLUTION - Premium lebih penting
         elif data['patterns'].get('bid_vs_premium_conflict', False):
             self._set_decision("SHORT", "CONFLICT_BID_VS_PREMIUM_PREMIUM_WINS", "MEDIUM",
                               "⚠️ BID DOMINANT TAPI SHORT PREMIUM - FOLLOW PREMIUM",
@@ -606,6 +596,7 @@ class DecisionEngine:
         }
 
 
+# ================= MAIN ANALYSIS FUNCTION =================
 def analyze_symbol(symbol: str) -> Optional[Dict]:
     """
     Main analysis function - returns snapshot dict
@@ -614,7 +605,7 @@ def analyze_symbol(symbol: str) -> Optional[Dict]:
     try:
         fetcher = BinanceFetcher(symbol)
         
-        # Fetch semua data dengan timeout total
+        # Fetch semua data
         price = fetcher.get_price()
         change_24h = fetcher.get_24h_change()
         ob_ratio = fetcher.get_orderbook_ratio()
@@ -749,22 +740,32 @@ def analyze_symbol(symbol: str) -> Optional[Dict]:
         return None
 
 
-# Popular symbols list - Wajib ada untuk endpoint /analyze
+# Popular symbols list
 POPULAR_SYMBOLS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "BTRUSDT", "SOLUSDT", "DOGEUSDT"]
 
 
 # Untuk testing langsung
 if __name__ == "__main__":
     print("🧪 Testing liquidation_hunter.py...")
-    test_symbol = "BTCUSDT"
-    result = analyze_symbol(test_symbol)
+    symbol = input("Symbol (e.g. BTCUSDT): ").upper() or "BTCUSDT"
+    result = analyze_symbol(symbol)
     
     if result:
-        print(f"✅ Success for {test_symbol}")
-        print(f"Price: ${result['price']}")
-        print(f"Opinion: {result['opinion']} ({result['confidence']})")
-        print(f"Reason: {result['reason']}")
+        print("\n" + "="*70)
+        print(f"🔥 BINANCE LIQUIDATION HUNTER V14")
+        print("="*70)
+        print(f"SYMBOL : {result['symbol']}")
+        print(f"TIME   : {result['time']}")
+        print(f"PRICE  : ${result['price']:,.2f}")
+        print("="*70)
+        print(f"🎯 OPINION     : {result['opinion']}")
+        print(f"📌 REASON      : {result['reason']}")
+        print(f"🔥 CONFIDENCE  : {result['confidence']}")
+        print(f"⚠️ ALERT       : {result['liquidation_alert']}")
+        print("="*70)
+        print(f"📊 OrderBook Ratio : {result['ob_ratio']}x ({result['ob_bias']})")
+        print(f"💰 Premium Basis   : {result['premium']}% ({result['premium_bias']})")
+        print(f"📈 24h Change      : {result['change_24h']}%")
+        print("="*70)
     else:
-        print(f"❌ Failed for {test_symbol}")
-        
-    print(f"\n📊 Popular symbols: {POPULAR_SYMBOLS}")
+        print(f"❌ Failed for {symbol}")
